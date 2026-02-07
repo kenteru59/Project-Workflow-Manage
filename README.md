@@ -95,45 +95,31 @@ workflow-app/
 
 ### 前提条件
 
-- Node.js 20以上
-- Docker & Docker Compose
-- pnpm (`npm install -g pnpm`)
-- AWS CLI（デプロイ時）
-- Terraform（デプロイ時）
-
-### WSL2での注意事項
-
-**重要**: WSL2環境では、Windowsマウント(`/mnt/c/`)上で`pnpm install`を実行すると権限エラーが発生します。
-
-**回避策**: プロジェクトをLinuxネイティブパス（`/tmp/`等）にコピーして作業します。
-
-```bash
-# プロジェクトをLinuxファイルシステムにコピー
-cp -r /mnt/c/develop/project/test_1/workflow-app /tmp/workflow-app
-cd /tmp/workflow-app
-
-# 以降の作業は/tmp/workflow-appで実施
-```
+- Node.js 20以上（動作確認済み: v24.13.0）
+- Docker Desktop for Windows
+- pnpm 9.x（`npm install -g pnpm@9`、または `npx pnpm@9.15.0` で代用可）
+- AWS CLI（デプロイ時のみ）
+- Terraform（デプロイ時のみ）
 
 ### 1. 依存関係のインストール
 
 ```bash
-cd /tmp/workflow-app
+cd workflow-app
 pnpm install
 ```
 
 ### 2. DynamoDB Localの起動
 
-```bash
-# Dockerグループに追加（初回のみ）
-sudo usermod -aG docker $USER
-newgrp docker
+Docker Desktopが起動していることを確認してから実行してください。
 
+```bash
 # DynamoDB Local起動
 docker compose up -d
 
 # 動作確認
 docker ps
+# CONTAINER ID  IMAGE                         PORTS                    NAMES
+# xxxxxxxxxxxx  amazon/dynamodb-local:latest   0.0.0.0:8000->8000/tcp   workflow-dynamodb
 ```
 
 ### 3. データベースのセットアップ
@@ -154,12 +140,17 @@ pnpm db:seed
 ### 4. アプリケーションの起動
 
 ```bash
-# 開発サーバー起動（API + Web）
+# 開発サーバー起動（API + Web を同時に起動）
 pnpm dev
 ```
 
-- **Web**: http://localhost:5173
-- **API**: http://localhost:3001
+| サービス | URL | 説明 |
+|---------|-----|------|
+| Web（フロントエンド） | http://localhost:5173 | React SPA（Vite） |
+| API（バックエンド） | http://localhost:3001 | Hono REST API |
+| DynamoDB Local | http://localhost:8000 | Dockerコンテナ |
+
+> **Note**: ポート5173が使用中の場合、Viteは自動的に5174等の別ポートを使用します。
 
 ## 画面構成
 
@@ -178,11 +169,11 @@ pnpm dev
 ## 開発コマンド
 
 ```bash
+# 開発サーバー起動（API + Web）
+pnpm dev
+
 # すべてをビルド
 pnpm run build
-
-# 開発サーバー起動
-pnpm dev
 
 # 個別パッケージのビルド
 pnpm --filter @workflow-app/shared build
@@ -192,6 +183,10 @@ pnpm --filter @workflow-app/web build
 # DynamoDB操作
 pnpm db:setup   # テーブル作成
 pnpm db:seed    # サンプルデータ投入
+
+# Docker操作
+pnpm db:start   # DynamoDB Localコンテナ起動
+pnpm db:stop    # DynamoDB Localコンテナ停止
 ```
 
 ## AWSデプロイ
@@ -217,8 +212,6 @@ pnpm db:seed    # サンプルデータ投入
 ### デプロイ手順
 
 ```bash
-cd /tmp/workflow-app
-
 # 開発環境にデプロイ
 bash scripts/deploy.sh dev
 
@@ -294,38 +287,41 @@ CloudFrontのドメインにブラウザでアクセスして動作確認しま�
 
 ## トラブルシューティング
 
-### pnpm installでEPERMエラー
+### Git Bashでdockerコマンドが見つからない
 
-**原因**: WSL2のWindowsマウント上で実行権限の設定ができない
+**原因**: Docker DesktopのPATHがGit Bashのシェルに反映されていない
 
 **解決策**:
 ```bash
-cp -r /mnt/c/develop/project/test_1/workflow-app /tmp/workflow-app
-cd /tmp/workflow-app
-pnpm install
+# PATHに追加（セッション中のみ有効）
+export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
+
+# または PowerShell から実行する
+docker compose up -d
 ```
 
-### Docker permission deniedエラー
+### pnpm dev起動時に「Cannot find module @workflow-app/shared/dist/index.js」
 
-**解決策**:
+**原因**: sharedパッケージのビルド成果物（`dist/`）が未生成の状態でAPIサーバーが起動しようとした
+
+**解決策**: `turbo.json`のdevタスクに`"dependsOn": ["^build"]`が設定されていることを確認してください。手動で解決する場合:
 ```bash
-# ユーザーをdockerグループに追加
-sudo usermod -aG docker $USER
-newgrp docker
+# sharedパッケージを先にビルド
+pnpm --filter @workflow-app/shared build
 
-# または一時的にsudoで実行
-sudo docker compose up -d
+# その後dev起動
+pnpm dev
 ```
 
 ### DynamoDB Localに接続できない
 
 **確認事項**:
 ```bash
-# Dockerコンテナが起動しているか確認
+# Docker Desktopが起動しているか確認
 docker ps
 
-# ポート8000が使用されているか確認
-netstat -an | grep 8000
+# コンテナが動いていなければ起動
+docker compose up -d
 
 # コンテナログを確認
 docker logs workflow-dynamodb
@@ -334,8 +330,8 @@ docker logs workflow-dynamodb
 ### ビルドエラー
 
 ```bash
-# キャッシュをクリア
-rm -rf node_modules .turbo
+# キャッシュとnode_modulesをクリアして再インストール
+rm -rf node_modules .turbo apps/*/node_modules packages/*/node_modules
 pnpm install
 pnpm run build
 ```
