@@ -195,9 +195,24 @@ pnpm db:stop    # DynamoDB Localコンテナ停止
 
 ```
 ユーザー → CloudFront → S3 (React SPA)
-                      ↘
+                      ↘ /api/*
                        API Gateway (HTTP API) → Lambda (Hono) → DynamoDB
+                       Cognito User Pool（認証基盤）
 ```
+
+CloudFrontがフロントエンド配信とAPIプロキシを統合し、単一ドメインでSPAとAPIの両方を提供します。
+
+### 作成されるAWSリソース（17個）
+
+| サービス | リソース | 説明 |
+|---------|---------|------|
+| DynamoDB | テーブル (PAY_PER_REQUEST) | GSI×2、Single-Table Design |
+| Lambda | 関数 (Node.js 20, 256MB) | Honoアプリ、30秒タイムアウト |
+| IAM | ロール + ポリシー×2 | Lambda実行ロール、DynamoDBアクセス権限 |
+| API Gateway | HTTP API (v2) | ルート + ステージ + Lambda統合 |
+| S3 | バケット | フロントエンド静的ファイル、パブリックアクセスブロック有効 |
+| CloudFront | ディストリビューション + OAI | S3オリジン + APIオリジン、SPA用403/404→index.htmlフォールバック |
+| Cognito | User Pool + Client | メール認証、OAuth 2.0コードフロー |
 
 ### 推定月額コスト（低トラフィック時）
 
@@ -205,24 +220,96 @@ pnpm db:stop    # DynamoDB Localコンテナ停止
 |---------|------|
 | DynamoDB (on-demand, 無料枠) | $0 |
 | Lambda (無料枠: 100万リクエスト/月) | $0 |
-| API Gateway HTTP API | $0〜$1 |
-| S3 + CloudFront | ~$0.10 |
-| **合計** | **~$0.10/月** |
+| API Gateway HTTP API (無料枠: 100万リクエスト/月) | $0 |
+| S3 + CloudFront (無料枠: 1TBデータ転送/月) | ~$0.02 |
+| Cognito (無料枠: 50,000 MAU) | $0 |
+| CloudWatch Logs | ~$0.01 |
+| **合計** | **~$0.03/月** |
+
+> **Note**: 上記はAWS無料利用枠の適用を前提としています。無料枠を超えた場合でもテスト用途なら月額$1未満です。
+
+### 前提条件
+
+- **AWS CLI** の設定済み（`aws configure` でプロファイル設定）
+- **Terraform** インストール済み（`winget install Hashicorp.Terraform` 等）
+- 適切な**IAM権限**（DynamoDB、Lambda、S3、CloudFront、API Gateway、Cognito、IAM、CloudWatch Logs）
+
+### AWSプロファイルの設定
+
+`infra/environments/dev/main.tf` の `provider` ブロックに使用するAWSプロファイルを指定します:
+
+```hcl
+provider "aws" {
+  region  = var.aws_region
+  profile = "your-profile-name"   # ← 自身のプロファイル名に変更
+}
+```
 
 ### デプロイ手順
 
-```bash
-# 開発環境にデプロイ
-bash scripts/deploy.sh dev
+#### 一括デプロイ（deploy.sh）
 
-# 本番環境にデプロイ
-bash scripts/deploy.sh prod
+```bash
+bash scripts/deploy.sh dev   # 開発環境
+bash scripts/deploy.sh prod  # 本番環境
 ```
 
-**前提条件**:
-- AWS CLIの設定済み（`aws configure`）
-- Terraform インストール済み
-- 適切なIAM権限（DynamoDB、Lambda、S3、CloudFront、API Gateway、Cognito）
+> **Note**: `deploy.sh` はビルド → Lambda ZIP作成 → Terraform apply → S3アップロード → CloudFrontキャッシュ無効化を一括実行します。初回はTerraform initを自動実行します。
+
+#### 手動デプロイ（ステップごと）
+
+```bash
+# 1. プロジェクトビルド（shared → api → web の順に実行される）
+pnpm run build
+
+# 2. Lambda ZIP作成
+cd apps/api/dist
+cp lambda.js lambda.mjs
+zip -j lambda.zip lambda.mjs
+rm lambda.mjs
+
+# 3. Terraform init（初回のみ）
+cd infra/environments/dev
+terraform init
+
+# 4. Terraform plan（変更内容の確認）
+terraform plan -var="lambda_zip_path=$(pwd)/../../../apps/api/dist/lambda.zip"
+
+# 5. Terraform apply（リソース作成・更新）
+terraform apply -var="lambda_zip_path=$(pwd)/../../../apps/api/dist/lambda.zip"
+
+# 6. フロントエンドをS3にアップロード
+aws s3 sync apps/web/dist/ s3://$(terraform output -raw s3_bucket_name)/ --delete --profile your-profile-name
+
+# 7. CloudFrontキャッシュ無効化
+aws cloudfront create-invalidation \
+  --distribution-id $(terraform output -raw cloudfront_distribution_id) \
+  --paths "/*" \
+  --profile your-profile-name
+```
+
+#### Windows PowerShellでのLambda ZIP作成
+
+Linux/macOSの `zip` コマンドが使えない場合:
+
+```powershell
+cd apps\api\dist
+Copy-Item lambda.js lambda.mjs
+Compress-Archive -Path lambda.mjs -DestinationPath lambda.zip -Force
+Remove-Item lambda.mjs
+```
+
+#### Lambda関数のみ更新（コード変更時）
+
+インフラ変更がなくAPIコードのみ変更した場合、Terraformを経由せずLambdaを直接更新できます:
+
+```bash
+# ビルド → ZIP作成後
+aws lambda update-function-code \
+  --function-name workflow-app-dev-api \
+  --zip-file fileb://apps/api/dist/lambda.zip \
+  --profile your-profile-name
+```
 
 ### デプロイ後の確認
 
@@ -231,15 +318,29 @@ cd infra/environments/dev  # または prod
 terraform output
 ```
 
-出力例：
-```
-api_url = "https://xxxxxxx.execute-api.ap-northeast-1.amazonaws.com"
-cloudfront_domain = "xxxxxxx.cloudfront.net"
-cognito_user_pool_id = "ap-northeast-1_xxxxxxx"
-cognito_client_id = "xxxxxxx"
+表示される値:
+- `api_url` — API GatewayエンドポイントURL
+- `cloudfront_domain` — CloudFrontドメイン（ブラウザでアクセス）
+- `cloudfront_distribution_id` — CloudFrontディストリビューションID
+- `s3_bucket_name` — フロントエンド用S3バケット名
+- `cognito_user_pool_id` — Cognito User Pool ID
+- `cognito_client_id` — Cognito Client ID
+- `dynamodb_table_name` — DynamoDBテーブル名
+
+CloudFrontドメインにブラウザでアクセスしてUIの表示を確認し、`/api/templates` 等のAPIエンドポイントが正常に応答することを確認します。
+
+### リソースの削除
+
+```bash
+cd infra/environments/dev
+terraform destroy
 ```
 
-CloudFrontのドメインにブラウザでアクセスして動作確認します。
+> **Warning**: S3バケットにオブジェクトが残っている場合は先に削除が必要です:
+> ```bash
+> aws s3 rm s3://$(terraform output -raw s3_bucket_name) --recursive --profile your-profile-name
+> terraform destroy
+> ```
 
 ## 実装フェーズ
 
@@ -335,6 +436,66 @@ rm -rf node_modules .turbo apps/*/node_modules packages/*/node_modules
 pnpm install
 pnpm run build
 ```
+
+### Git BashでTerraformコマンドが見つからない（Windows）
+
+**原因**: `winget install` 後にPATHがGit Bashセッションに反映されない
+
+**解決策**:
+```bash
+# PATHにTerraformの場所を追加
+export PATH="$PATH:$(find /c/Users/$(whoami)/AppData/Local/Microsoft/WinGet/Packages -name 'terraform.exe' -printf '%h' 2>/dev/null)"
+
+# 確認
+terraform --version
+```
+
+### Git BashでAWS CLIのパスが変換される（Windows）
+
+**原因**: Git BashのMSYS2が `/aws/lambda/...` のようなパスをWindowsパスに自動変換する
+
+**解決策**:
+```bash
+# MSYS_NO_PATHCONV=1 を先頭に付けてパス変換を無効化
+MSYS_NO_PATHCONV=1 aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/workflow-app-dev-api"
+```
+
+### Lambda起動時に「secure crypto unusable」エラー
+
+**原因**: `ulid` パッケージ (UMDフォーマット) がesbuildのESMバンドル内でNode.jsの`crypto`モジュールを検出できない
+
+**解決策**: `apps/api/package.json` のビルドコマンドにバナーオプションを追加:
+```json
+"build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --outdir=dist --format=esm --external:@aws-sdk --banner:js=\"import crypto from 'node:crypto'; if (typeof window === 'undefined') { globalThis.window = { crypto }; }\""
+```
+
+### Lambdaが「connect ECONNREFUSED 127.0.0.1:8000」エラー
+
+**原因**: DynamoDBクライアントの接続先がローカル開発用の `localhost:8000` にハードコードされている
+
+**解決策**: `apps/api/src/db.ts` でDynamoDBClientの設定が環境変数 `DYNAMODB_ENDPOINT` の有無で切り替わるようにする:
+```typescript
+const client = new DynamoDBClient(
+  isLocal
+    ? { endpoint: process.env.DYNAMODB_ENDPOINT, region: "ap-northeast-1", credentials: { accessKeyId: "local", secretAccessKey: "local" } }
+    : { region: process.env.AWS_REGION || "ap-northeast-1" }
+);
+```
+
+### S3バケット名の競合
+
+**原因**: S3バケット名はグローバルに一意である必要がある
+
+**解決策**: `infra/environments/dev/main.tf` の `bucket_name` にアカウントIDやサフィックスを追加:
+```hcl
+module "frontend" {
+  bucket_name  = "${local.project_name}-frontend-${data.aws_caller_identity.current.account_id}"
+}
+```
+
+### CloudFrontディストリビューションの作成が遅い
+
+CloudFrontディストリビューションの作成・更新には数分〜15分かかることがあります。`terraform apply` 中に `Still creating...` と表示されますが、正常な動作です。
 
 ## API仕様
 

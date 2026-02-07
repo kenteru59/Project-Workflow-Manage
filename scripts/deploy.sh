@@ -15,9 +15,9 @@ pnpm run build
 # 2. Package Lambda
 echo "--- Lambda パッケージ作成..."
 cd "$ROOT_DIR/apps/api/dist"
-cp lambda.js index.mjs
-zip -j lambda.zip index.mjs
-rm index.mjs
+cp lambda.js lambda.mjs
+zip -j lambda.zip lambda.mjs
+rm lambda.mjs
 
 # 3. Terraform apply
 echo "--- Terraform apply ($ENV)..."

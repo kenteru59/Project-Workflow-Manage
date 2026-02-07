@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/local.ts",
-    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --outdir=dist --format=esm --external:@aws-sdk",
+    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --outdir=dist --format=esm --external:@aws-sdk --banner:js=\"import crypto from 'node:crypto'; if (typeof window === 'undefined') { globalThis.window = { crypto }; }\"",
     "db:setup": "tsx src/scripts/setup-table.ts",
     "db:seed": "tsx src/scripts/seed.ts"
   },

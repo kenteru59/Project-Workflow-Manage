@@ -9,11 +9,17 @@ console.log("DynamoDB Config:", {
   region: process.env.AWS_REGION || "ap-northeast-1",
 });
 
-const client = new DynamoDBClient({
-  endpoint: "http://localhost:8000",
-  region: "ap-northeast-1",
-  credentials: { accessKeyId: "local", secretAccessKey: "local" },
-});
+const client = new DynamoDBClient(
+  isLocal
+    ? {
+        endpoint: process.env.DYNAMODB_ENDPOINT,
+        region: "ap-northeast-1",
+        credentials: { accessKeyId: "local", secretAccessKey: "local" },
+      }
+    : {
+        region: process.env.AWS_REGION || "ap-northeast-1",
+      }
+);
 
 export const docClient = DynamoDBDocumentClient.from(client, {
   marshallOptions: { removeUndefinedValues: true },
