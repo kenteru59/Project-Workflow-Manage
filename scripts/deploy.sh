@@ -10,7 +10,7 @@ echo "=== ワークフロー管理アプリ デプロイ ($ENV) ==="
 # 1. Build all packages
 echo "--- ビルド中..."
 cd "$ROOT_DIR"
-pnpm run build
+npx pnpm run build
 
 # 2. Package Lambda
 echo "--- Lambda パッケージ作成..."
