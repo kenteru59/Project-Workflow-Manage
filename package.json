@@ -1,0 +1,18 @@
+{
+  "name": "workflow-app",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "db:start": "docker compose up -d",
+    "db:stop": "docker compose down",
+    "db:setup": "pnpm --filter api db:setup",
+    "db:seed": "pnpm --filter api db:seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

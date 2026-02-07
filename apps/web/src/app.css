@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #0a0a0a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0a0a0a;
+  --color-primary: #1a1a2e;
+  --color-primary-foreground: #f5f5f5;
+  --color-secondary: #f0f0f5;
+  --color-secondary-foreground: #1a1a2e;
+  --color-muted: #f5f5f5;
+  --color-muted-foreground: #6b7280;
+  --color-accent: #f0f0f5;
+  --color-accent-foreground: #1a1a2e;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #e5e7eb;
+  --color-input: #e5e7eb;
+  --color-ring: #1a1a2e;
+  --radius: 0.5rem;
+
+  --color-sidebar: #f8fafc;
+  --color-sidebar-foreground: #1e293b;
+  --color-sidebar-border: #e2e8f0;
+  --color-sidebar-accent: #e2e8f0;
+  --color-sidebar-accent-foreground: #0f172a;
+
+  --color-status-todo: #94a3b8;
+  --color-status-in-progress: #3b82f6;
+  --color-status-review: #f59e0b;
+  --color-status-done: #22c55e;
+  --color-status-draft: #9ca3af;
+  --color-status-pending-approval: #a855f7;
+  --color-status-completed: #22c55e;
+  --color-status-cancelled: #ef4444;
+
+  --color-priority-low: #94a3b8;
+  --color-priority-medium: #3b82f6;
+  --color-priority-high: #f59e0b;
+  --color-priority-urgent: #ef4444;
+}
+
+body {
+  font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+}
