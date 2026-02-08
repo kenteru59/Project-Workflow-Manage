@@ -154,6 +154,38 @@ export const ApprovalStepSchema = z.object({
 });
 export type ApprovalStep = z.infer<typeof ApprovalStepSchema>;
 
+// ========== Member ==========
+
+export const MemberStatus = z.enum(["active", "inactive"]);
+export type MemberStatus = z.infer<typeof MemberStatus>;
+
+export const MemberSchema = z.object({
+  id: z.string().ulid(),
+  name: z.string().min(1).max(100),
+  email: z.string().email().optional().or(z.literal("")),
+  role: z.string().min(1).max(100),
+  status: MemberStatus,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type Member = z.infer<typeof MemberSchema>;
+
+export const CreateMemberSchema = z.object({
+  name: z.string().min(1).max(100),
+  email: z.string().email().optional().or(z.literal("")),
+  role: z.string().min(1).max(100),
+  status: MemberStatus.default("active"),
+});
+export type CreateMemberInput = z.infer<typeof CreateMemberSchema>;
+
+export const UpdateMemberSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  role: z.string().min(1).max(100).optional(),
+  status: MemberStatus.optional(),
+});
+export type UpdateMemberInput = z.infer<typeof UpdateMemberSchema>;
+
 // ========== API Response ==========
 
 export const ApiResponseSchema = <T extends z.ZodType>(dataSchema: T) =>

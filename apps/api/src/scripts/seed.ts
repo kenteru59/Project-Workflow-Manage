@@ -218,6 +218,32 @@ async function seed() {
     priority: "high",
   });
 
+  // ===== メンバーマスタ =====
+  const members = [
+    { name: "田中 太郎", role: "マネージャー", email: "tanaka@example.com" },
+    { name: "佐藤 花子", role: "人事担当", email: "sato@example.com" },
+    { name: "鈴木 一郎", role: "エンジニア", email: "suzuki@example.com" },
+    { name: "高橋 健二", role: "経理担当", email: "takahashi@example.com" },
+  ];
+
+  for (const m of members) {
+    const id = ulid();
+    await put({
+      PK: `MEMBER#${id}`,
+      SK: `MEMBER#${id}`,
+      GSI1PK: "MEMBER",
+      GSI1SK: m.name,
+      _type: "Member",
+      id,
+      name: m.name,
+      role: m.role,
+      email: m.email,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   console.log("シードデータの投入が完了しました");
   console.log(`  テンプレート1: 休暇申請 (${tmpl1Id})`);
   console.log(`  テンプレート2: 購買申請 (${tmpl2Id})`);

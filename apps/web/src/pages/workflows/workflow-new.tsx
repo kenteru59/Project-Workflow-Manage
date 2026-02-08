@@ -18,12 +18,14 @@ import {
 } from "@/components/ui/select";
 import { useTemplates } from "@/hooks/use-templates";
 import { useCreateWorkflow } from "@/hooks/use-workflows";
+import { useUIStore } from "@/stores/ui-store";
 import { ArrowLeft } from "lucide-react";
 
 export function WorkflowNewPage() {
   const navigate = useNavigate();
   const { data: templates = [] } = useTemplates();
   const createMut = useCreateWorkflow();
+  const { currentUser } = useUIStore();
 
   const [templateId, setTemplateId] = useState("");
   const [name, setName] = useState("");
@@ -36,6 +38,7 @@ export function WorkflowNewPage() {
     const result = await createMut.mutateAsync({
       templateId,
       name,
+      createdBy: currentUser?.name || "システム",
       dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
     });
     navigate(`/workflows/${result.workflow.id}`);
