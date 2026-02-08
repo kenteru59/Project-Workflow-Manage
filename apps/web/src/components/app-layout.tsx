@@ -6,6 +6,7 @@ import {
   Kanban,
   CheckCircle,
   Users,
+  Shield,
   Menu,
   User,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const navItems = [
   { path: "/kanban", label: "カンバンボード", icon: Kanban },
   { path: "/approvals", label: "承認キュー", icon: CheckCircle },
   { path: "/members", label: "メンバーマスタ", icon: Users },
+  { path: "/roles", label: "ロールマスタ", icon: Shield },
 ];
 
 export function AppLayout() {

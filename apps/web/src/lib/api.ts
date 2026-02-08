@@ -153,3 +153,25 @@ export const memberApi = {
       method: "DELETE",
     }),
 };
+
+// ===== Roles =====
+export const roleApi = {
+  list: () =>
+    request<{ success: boolean; data: any[] }>("/roles").then((r) => r.data),
+  get: (id: string) =>
+    request<{ success: boolean; data: any }>(`/roles/${id}`).then((r) => r.data),
+  create: (data: any) =>
+    request<{ success: boolean; data: any }>("/roles", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }).then((r) => r.data),
+  update: (id: string, data: any) =>
+    request<{ success: boolean; data: any }>(`/roles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }).then((r) => r.data),
+  delete: (id: string) =>
+    request<{ success: boolean }>(`/roles/${id}`, {
+      method: "DELETE",
+    }),
+};

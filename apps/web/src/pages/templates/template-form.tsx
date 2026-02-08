@@ -24,8 +24,10 @@ import {
   useCreateTaskPattern,
   useDeleteTaskPattern,
 } from "@/hooks/use-templates";
+import { useRoles } from "@/hooks/use-roles";
 import { Plus, Trash2, ArrowLeft, GripVertical, Edit } from "lucide-react";
-import type { WorkflowStep, StepType, TaskPriority } from "@workflow-app/shared";
+import type { WorkflowStep, StepType, TaskPriority, Role } from "@workflow-app/shared";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DndContext,
   closestCenter,
@@ -50,7 +52,7 @@ interface StepFormData {
   order: number;
   name: string;
   type: StepType;
-  approverRole?: string;
+  approverRoles: string[];
 }
 
 interface PatternFormData {
@@ -70,12 +72,14 @@ function SortableStepItem({
   updateStep,
   removeStep,
   stepsCount,
+  roles,
 }: {
   step: StepFormData;
   index: number;
-  updateStep: (index: number, field: string, value: string) => void;
+  updateStep: (index: number, field: string, value: any) => void;
   removeStep: (index: number) => void;
   stepsCount: number;
+  roles: Role[];
 }) {
   const {
     attributes,
@@ -92,59 +96,86 @@ function SortableStepItem({
     zIndex: isDragging ? 10 : 1,
   };
 
+  const toggleRole = (roleName: string, checked: boolean) => {
+    const currentRoles = step.approverRoles || [];
+    if (checked) {
+      updateStep(index, "approverRoles", [...currentRoles, roleName]);
+    } else {
+      updateStep(index, "approverRoles", currentRoles.filter((r) => r !== roleName));
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-center gap-3 p-3 border rounded-lg bg-background",
+        "flex flex-col gap-3 p-3 border rounded-lg bg-background",
         isDragging && "opacity-50 shadow-lg border-primary"
       )}
     >
-      <div {...attributes} {...listeners} className="cursor-grab hover:text-primary">
-        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-      </div>
-      <span className="text-sm font-medium text-muted-foreground w-6 text-center">
-        {index + 1}
-      </span>
-      <Input
-        value={step.name}
-        onChange={(e) => updateStep(index, "name", e.target.value)}
-        placeholder="ステップ名"
-        className="flex-1"
-      />
-      <Select
-        value={step.type}
-        onValueChange={(v) => updateStep(index, "type", v)}
-      >
-        <SelectTrigger className="w-32">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="task">タスク</SelectItem>
-          <SelectItem value="approval">承認</SelectItem>
-          <SelectItem value="auto">自動</SelectItem>
-        </SelectContent>
-      </Select>
-      {step.type === "approval" && (
+      <div className="flex items-center gap-3">
+        <div {...attributes} {...listeners} className="cursor-grab hover:text-primary">
+          <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+        </div>
+        <span className="text-sm font-medium text-muted-foreground w-6 text-center">
+          {index + 1}
+        </span>
         <Input
-          value={step.approverRole || ""}
-          onChange={(e) =>
-            updateStep(index, "approverRole", e.target.value)
-          }
-          placeholder="承認者ロール"
-          className="w-36"
+          value={step.name}
+          onChange={(e) => updateStep(index, "name", e.target.value)}
+          placeholder="ステップ名"
+          className="flex-1"
         />
+        <Select
+          value={step.type}
+          onValueChange={(v) => updateStep(index, "type", v)}
+        >
+          <SelectTrigger className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="task">タスク</SelectItem>
+            <SelectItem value="approval">承認</SelectItem>
+            <SelectItem value="auto">自動</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => removeStep(index)}
+          disabled={stepsCount <= 1}
+          className="shrink-0"
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      </div>
+
+      {step.type === "approval" && (
+        <div className="ml-12 p-3 bg-muted/50 rounded-md space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground">承認者ロール（複数選択可）</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {roles.map((r) => (
+              <div key={r.id} className="flex items-center space-x-2">
+                <Checkbox
+                  id={`step-${step.id}-role-${r.id}`}
+                  checked={(step.approverRoles || []).includes(r.name)}
+                  onCheckedChange={(checked) => toggleRole(r.name, checked as boolean)}
+                />
+                <label
+                  htmlFor={`step-${step.id}-role-${r.id}`}
+                  className="text-xs font-medium leading-none cursor-pointer"
+                >
+                  {r.name}
+                </label>
+              </div>
+            ))}
+            {roles.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">ロールが登録されていません</p>
+            )}
+          </div>
+        </div>
       )}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => removeStep(index)}
-        disabled={stepsCount <= 1}
-        className="shrink-0"
-      >
-        <Trash2 className="h-4 w-4 text-destructive" />
-      </Button>
     </div>
   );
 }
@@ -159,6 +190,7 @@ export function TemplateFormPage() {
 
   const { data: template, isLoading: isLoadingTemplate } = useTemplate(id || "");
   const { data: patterns = [], isLoading: isLoadingPatterns } = useTaskPatterns(id || "");
+  const { data: roles = [] } = useRoles();
   const createMut = useCreateTemplate();
   const updateMut = useUpdateTemplate();
   const createPatternMut = useCreateTaskPattern();
@@ -167,7 +199,7 @@ export function TemplateFormPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [steps, setSteps] = useState<StepFormData[]>([
-    { id: generateTempId(), order: 1, name: "", type: "task" },
+    { id: generateTempId(), order: 1, name: "", type: "task", approverRoles: [] },
   ]);
 
   const [localPatterns, setLocalPatterns] = useState<PatternFormData[]>([]);
@@ -194,12 +226,12 @@ export function TemplateFormPage() {
     if (isEdit && template && !isLoadingTemplate && !isLoadingPatterns && !isInitialized) {
       setName(template.name);
       setDescription(template.description);
-      const newSteps = template.steps.map((s) => ({
+      const newSteps = template.steps.map((s: any) => ({
         id: generateTempId(),
         order: s.order,
         name: s.name,
         type: s.type,
-        approverRole: s.approverRole,
+        approverRoles: s.approverRoles || (s.approverRole ? [s.approverRole] : []),
       }));
       setSteps(newSteps);
 
@@ -227,7 +259,7 @@ export function TemplateFormPage() {
     const newId = generateTempId();
     setSteps([
       ...steps,
-      { id: newId, order: steps.length + 1, name: "", type: "task" },
+      { id: newId, order: steps.length + 1, name: "", type: "task", approverRoles: [] },
     ]);
   };
 
@@ -239,7 +271,7 @@ export function TemplateFormPage() {
     setLocalPatterns(localPatterns.filter((p) => p.stepId !== stepToRemove.id));
   };
 
-  const updateStep = (index: number, field: string, value: string) => {
+  const updateStep = (index: number, field: string, value: any) => {
     const newSteps = [...steps];
     (newSteps[index] as any)[field] = value;
     setSteps(newSteps);
@@ -272,7 +304,7 @@ export function TemplateFormPage() {
           order: i + 1,
           name: s.name,
           type: s.type,
-          ...(s.approverRole ? { approverRole: s.approverRole } : {}),
+          approverRoles: s.approverRoles || [],
         })),
       };
 
@@ -447,6 +479,7 @@ export function TemplateFormPage() {
                     updateStep={updateStep}
                     removeStep={removeStep}
                     stepsCount={steps.length}
+                    roles={roles}
                   />
                 ))}
               </div>
@@ -564,16 +597,26 @@ export function TemplateFormPage() {
                 </SelectContent>
               </Select>
             </div>
-            <Input
+            <Select
               value={newPattern.defaultAssigneeRole || ""}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 setNewPattern({
                   ...newPattern,
-                  defaultAssigneeRole: e.target.value || undefined,
+                  defaultAssigneeRole: v || undefined,
                 })
               }
-              placeholder="デフォルト担当者ロール"
-            />
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="デフォルト担当者ロール" />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map((r) => (
+                  <SelectItem key={r.id} value={r.name}>
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="flex gap-2">
               <Button
                 variant="outline"

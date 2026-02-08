@@ -13,6 +13,8 @@ import { KanbanPage } from "@/pages/kanban";
 import { ApprovalsPage } from "@/pages/approvals";
 import { MemberListPage } from "@/pages/members/member-list";
 import { MemberFormPage } from "@/pages/members/member-form";
+import { RoleListPage } from "@/pages/roles/role-list";
+import { RoleFormPage } from "@/pages/roles/role-form";
 import "./app.css";
 
 const queryClient = new QueryClient({
@@ -45,6 +47,9 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/members" element={<MemberListPage />} />
             <Route path="/members/new" element={<MemberFormPage />} />
             <Route path="/members/:id" element={<MemberFormPage />} />
+            <Route path="/roles" element={<RoleListPage />} />
+            <Route path="/roles/new" element={<RoleFormPage />} />
+            <Route path="/roles/:id" element={<RoleFormPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

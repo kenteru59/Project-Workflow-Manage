@@ -20,6 +20,7 @@ import {
   useCreateMember,
   useUpdateMember,
 } from "@/hooks/use-members";
+import { useRoles } from "@/hooks/use-roles";
 import { ArrowLeft } from "lucide-react";
 import type { MemberStatus } from "@workflow-app/shared";
 
@@ -29,6 +30,7 @@ export function MemberFormPage() {
   const isEdit = !!id;
 
   const { data: member } = useMember(id || "");
+  const { data: roles = [] } = useRoles();
   const createMut = useCreateMember();
   const updateMut = useUpdateMember();
 
@@ -96,11 +98,18 @@ export function MemberFormPage() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">ロール / 役職</label>
-              <Input
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="例: リーダー, 承認者"
-              />
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger>
+                  <SelectValue placeholder="ロールを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((r) => (
+                    <SelectItem key={r.id} value={r.name}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

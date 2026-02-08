@@ -29,7 +29,7 @@ export const WorkflowStepSchema = z.object({
   order: z.number().int().min(1),
   name: z.string().min(1).max(100),
   type: StepType,
-  approverRole: z.string().optional(),
+  approverRoles: z.array(z.string()).default([]),
 });
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
 
@@ -185,6 +185,38 @@ export const UpdateMemberSchema = z.object({
   status: MemberStatus.optional(),
 });
 export type UpdateMemberInput = z.infer<typeof UpdateMemberSchema>;
+
+// ========== Role ==========
+
+export const RolePermissionsSchema = z.object({
+  member: z.boolean().default(false),
+  lead: z.boolean().default(false),
+  requester: z.boolean().default(false),
+  approver: z.boolean().default(false),
+  admin: z.boolean().default(false),
+});
+export type RolePermissions = z.infer<typeof RolePermissionsSchema>;
+
+export const RoleSchema = z.object({
+  id: z.string().ulid(),
+  name: z.string().min(1).max(100),
+  permissions: RolePermissionsSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type Role = z.infer<typeof RoleSchema>;
+
+export const CreateRoleSchema = z.object({
+  name: z.string().min(1).max(100),
+  permissions: RolePermissionsSchema,
+});
+export type CreateRoleInput = z.infer<typeof CreateRoleSchema>;
+
+export const UpdateRoleSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  permissions: RolePermissionsSchema.partial().optional(),
+});
+export type UpdateRoleInput = z.infer<typeof UpdateRoleSchema>;
 
 // ========== API Response ==========
 
