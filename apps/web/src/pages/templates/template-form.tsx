@@ -24,10 +24,29 @@ import {
   useCreateTaskPattern,
   useDeleteTaskPattern,
 } from "@/hooks/use-templates";
-import { Plus, Trash2, ArrowLeft, GripVertical } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, GripVertical, Edit } from "lucide-react";
 import type { WorkflowStep, StepType, TaskPriority } from "@workflow-app/shared";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { cn } from "@/lib/utils";
 
 interface StepFormData {
+  id: string; // dnd-kit 用の一時的なID
   order: number;
   name: string;
   type: StepType;
@@ -35,20 +54,111 @@ interface StepFormData {
 }
 
 interface PatternFormData {
+  id?: string; // 既存パターンの場合はAPIのID
   name: string;
   description: string;
-  stepOrder: number;
+  stepId: string; // order ではなく id で紐付ける
+  stepOrder: number; // API送信時用
   defaultAssigneeRole?: string;
   priority: TaskPriority;
 }
+
+// --- Sortable Item Component ---
+function SortableStepItem({
+  step,
+  index,
+  updateStep,
+  removeStep,
+  stepsCount,
+}: {
+  step: StepFormData;
+  index: number;
+  updateStep: (index: number, field: string, value: string) => void;
+  removeStep: (index: number) => void;
+  stepsCount: number;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: step.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-3 p-3 border rounded-lg bg-background",
+        isDragging && "opacity-50 shadow-lg border-primary"
+      )}
+    >
+      <div {...attributes} {...listeners} className="cursor-grab hover:text-primary">
+        <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+      </div>
+      <span className="text-sm font-medium text-muted-foreground w-6 text-center">
+        {index + 1}
+      </span>
+      <Input
+        value={step.name}
+        onChange={(e) => updateStep(index, "name", e.target.value)}
+        placeholder="ステップ名"
+        className="flex-1"
+      />
+      <Select
+        value={step.type}
+        onValueChange={(v) => updateStep(index, "type", v)}
+      >
+        <SelectTrigger className="w-32">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="task">タスク</SelectItem>
+          <SelectItem value="approval">承認</SelectItem>
+          <SelectItem value="auto">自動</SelectItem>
+        </SelectContent>
+      </Select>
+      {step.type === "approval" && (
+        <Input
+          value={step.approverRole || ""}
+          onChange={(e) =>
+            updateStep(index, "approverRole", e.target.value)
+          }
+          placeholder="承認者ロール"
+          className="w-36"
+        />
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => removeStep(index)}
+        disabled={stepsCount <= 1}
+        className="shrink-0"
+      >
+        <Trash2 className="h-4 w-4 text-destructive" />
+      </Button>
+    </div>
+  );
+}
+
+// Utility to generate a temporary ID
+const generateTempId = () => Math.random().toString(36).substring(2, 9);
 
 export function TemplateFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isEdit = !!id;
 
-  const { data: template } = useTemplate(id || "");
-  const { data: patterns = [] } = useTaskPatterns(id || "");
+  const { data: template, isLoading: isLoadingTemplate } = useTemplate(id || "");
+  const { data: patterns = [], isLoading: isLoadingPatterns } = useTaskPatterns(id || "");
   const createMut = useCreateTemplate();
   const updateMut = useUpdateTemplate();
   const createPatternMut = useCreateTaskPattern();
@@ -57,41 +167,76 @@ export function TemplateFormPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [steps, setSteps] = useState<StepFormData[]>([
-    { order: 1, name: "", type: "task" },
+    { id: generateTempId(), order: 1, name: "", type: "task" },
   ]);
+
+  const [localPatterns, setLocalPatterns] = useState<PatternFormData[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const [newPattern, setNewPattern] = useState<PatternFormData>({
     name: "",
     description: "",
+    stepId: "",
     stepOrder: 1,
     priority: "medium",
   });
 
   useEffect(() => {
-    if (template) {
+    // 編集モードでデータがロードされ、かつ、まだ初期化されていない場合のみ実行
+    if (isEdit && template && !isLoadingTemplate && !isLoadingPatterns && !isInitialized) {
       setName(template.name);
       setDescription(template.description);
-      setSteps(
-        template.steps.map((s) => ({
-          order: s.order,
-          name: s.name,
-          type: s.type,
-          approverRole: s.approverRole,
-        }))
-      );
+      const newSteps = template.steps.map((s) => ({
+        id: generateTempId(),
+        order: s.order,
+        name: s.name,
+        type: s.type,
+        approverRole: s.approverRole,
+      }));
+      setSteps(newSteps);
+
+      // 既存のパターンを読み込み、stepOrderからstepIdを特定してセットする
+      if (patterns && patterns.length > 0) {
+        const mappedPatterns = patterns.map((p) => {
+          const step = newSteps.find((s) => s.order === p.stepOrder);
+          return {
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            stepId: step?.id || "",
+            stepOrder: p.stepOrder,
+            defaultAssigneeRole: p.defaultAssigneeRole,
+            priority: p.priority,
+          };
+        });
+        setLocalPatterns(mappedPatterns);
+      }
+      setIsInitialized(true);
     }
-  }, [template]);
+  }, [isEdit, template, patterns, isLoadingTemplate, isLoadingPatterns, isInitialized]);
 
   const addStep = () => {
+    const newId = generateTempId();
     setSteps([
       ...steps,
-      { order: steps.length + 1, name: "", type: "task" },
+      { id: newId, order: steps.length + 1, name: "", type: "task" },
     ]);
   };
 
   const removeStep = (index: number) => {
+    const stepToRemove = steps[index];
     const newSteps = steps.filter((_, i) => i !== index);
     setSteps(newSteps.map((s, i) => ({ ...s, order: i + 1 })));
+    // 削除されたステップに紐付いていたタスクパターンも削除する
+    setLocalPatterns(localPatterns.filter((p) => p.stepId !== stepToRemove.id));
   };
 
   const updateStep = (index: number, field: string, value: string) => {
@@ -100,42 +245,135 @@ export function TemplateFormPage() {
     setSteps(newSteps);
   };
 
-  const handleSubmit = async () => {
-    const validSteps = steps.filter((s) => s.name.trim());
-    if (!name.trim() || validSteps.length === 0) return;
-
-    const data = {
-      name,
-      description,
-      steps: validSteps.map((s, i) => ({
-        order: i + 1,
-        name: s.name,
-        type: s.type,
-        ...(s.approverRole ? { approverRole: s.approverRole } : {}),
-      })),
-    };
-
-    if (isEdit && id) {
-      await updateMut.mutateAsync({ id, data });
-    } else {
-      await createMut.mutateAsync(data);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setSteps((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        return newItems.map((item, index) => ({
+          ...item,
+          order: index + 1,
+        }));
+      });
     }
-    navigate("/templates");
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const validSteps = steps.filter((s) => s.name.trim());
+      if (!name.trim() || validSteps.length === 0) return;
+
+      const data = {
+        name,
+        description,
+        steps: validSteps.map((s, i) => ({
+          order: i + 1,
+          name: s.name,
+          type: s.type,
+          ...(s.approverRole ? { approverRole: s.approverRole } : {}),
+        })),
+      };
+
+      let finalTemplateId = id;
+      if (isEdit && id) {
+        await updateMut.mutateAsync({ id, data });
+      } else {
+        const result = await createMut.mutateAsync(data);
+        finalTemplateId = result.id;
+      }
+
+      if (!finalTemplateId) throw new Error("Template ID not found");
+
+      // タスクパターンの更新処理
+      // 1. 既存のパターンを一旦すべて削除
+      if (isEdit && id && patterns && patterns.length > 0) {
+        await Promise.all(
+          patterns.map((p) =>
+            deletePatternMut.mutateAsync({ templateId: id, patternId: p.id })
+          )
+        );
+      }
+
+      // 2. 現在のステップの並び順に基づいて stepOrder を計算し、登録する
+      const allPatternsToSave = [...localPatterns];
+      if (newPattern.name.trim() && newPattern.stepId) {
+        allPatternsToSave.push(newPattern);
+      }
+
+      for (const p of allPatternsToSave) {
+        const stepIndex = steps.findIndex((s) => s.id === p.stepId);
+        if (stepIndex !== -1) {
+          await createPatternMut.mutateAsync({
+            templateId: finalTemplateId,
+            data: {
+              name: p.name,
+              description: p.description,
+              stepOrder: stepIndex + 1,
+              defaultAssigneeRole: p.defaultAssigneeRole,
+              priority: p.priority,
+            },
+          });
+        }
+      }
+      
+      navigate("/templates");
+    } catch (error) {
+      console.error("Failed to save template:", error);
+      alert("テンプレートの保存に失敗しました。");
+    }
   };
 
   const handleAddPattern = async () => {
-    if (!id || !newPattern.name.trim()) return;
-    await createPatternMut.mutateAsync({
-      templateId: id,
-      data: newPattern,
-    });
+    if (!newPattern.name.trim() || !newPattern.stepId) return;
+
+    if (editingIndex !== null) {
+      // 更新モード
+      const updatedPatterns = [...localPatterns];
+      updatedPatterns[editingIndex] = { ...newPattern };
+      setLocalPatterns(updatedPatterns);
+      setEditingIndex(null);
+    } else {
+      // 追加モード
+      setLocalPatterns([...localPatterns, { ...newPattern }]);
+    }
+
     setNewPattern({
       name: "",
       description: "",
+      stepId: "",
       stepOrder: 1,
       priority: "medium",
     });
   };
+
+  const handleEditPattern = (index: number) => {
+    setNewPattern({ ...localPatterns[index] });
+    setEditingIndex(index);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingIndex(null);
+    setNewPattern({
+      name: "",
+      description: "",
+      stepId: "",
+      stepOrder: 1,
+      priority: "medium",
+    });
+  };
+
+  const handleRemoveLocalPattern = (index: number) => {
+    setLocalPatterns(localPatterns.filter((_, i) => i !== index));
+    if (editingIndex === index) {
+      handleCancelEdit();
+    }
+  };
+
+  if (isEdit && (isLoadingTemplate || isLoadingPatterns)) {
+    return <div className="p-6 text-center">読み込み中...</div>;
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-3xl">
@@ -191,179 +429,179 @@ export function TemplateFormPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {steps.map((step, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-3 p-3 border rounded-lg"
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={steps.map((s) => s.id)}
+              strategy={verticalListSortingStrategy}
             >
-              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-sm font-medium text-muted-foreground w-6">
-                {index + 1}
-              </span>
-              <Input
-                value={step.name}
-                onChange={(e) => updateStep(index, "name", e.target.value)}
-                placeholder="ステップ名"
-                className="flex-1"
-              />
-              <Select
-                value={step.type}
-                onValueChange={(v) => updateStep(index, "type", v)}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="task">タスク</SelectItem>
-                  <SelectItem value="approval">承認</SelectItem>
-                  <SelectItem value="auto">自動</SelectItem>
-                </SelectContent>
-              </Select>
-              {step.type === "approval" && (
-                <Input
-                  value={step.approverRole || ""}
-                  onChange={(e) =>
-                    updateStep(index, "approverRole", e.target.value)
-                  }
-                  placeholder="承認者ロール"
-                  className="w-36"
-                />
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeStep(index)}
-                disabled={steps.length <= 1}
-                className="shrink-0"
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
-          ))}
+              <div className="space-y-3">
+                {steps.map((step, index) => (
+                  <SortableStepItem
+                    key={step.id}
+                    step={step}
+                    index={index}
+                    updateStep={updateStep}
+                    removeStep={removeStep}
+                    stepsCount={steps.length}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         </CardContent>
       </Card>
 
-      {/* Task patterns (edit mode only) */}
-      {isEdit && id && (
-        <Card>
-          <CardHeader>
-            <CardTitle>タスクパターン</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {patterns.length > 0 && (
-              <div className="space-y-2">
-                {patterns.map((p) => (
+      {/* Task patterns */}
+      <Card>
+        <CardHeader>
+          <CardTitle>タスクパターン</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* List local patterns */}
+          {localPatterns.length > 0 && (
+            <div className="space-y-2">
+              {localPatterns.map((p, index) => {
+                const step = steps.find((s) => s.id === p.stepId);
+                return (
                   <div
-                    key={p.id}
+                    key={index}
                     className="flex items-center justify-between p-3 border rounded-lg"
                   >
                     <div>
                       <p className="text-sm font-medium">{p.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        ステップ {p.stepOrder} ・ 優先度: {p.priority} ・{" "}
+                        ステップ {step ? steps.indexOf(step) + 1 : "?"} ({step?.name || "不明"}) ・ 優先度: {p.priority} ・{" "}
                         {p.defaultAssigneeRole || "未割当"}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() =>
-                        deletePatternMut.mutate({
-                          templateId: id,
-                          patternId: p.id,
-                        })
-                      }
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEditPattern(index)}
+                        className={cn(editingIndex === index && "text-primary bg-primary/10")}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemoveLocalPattern(index)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
+          )}
 
-            {/* Add pattern form */}
-            <div className="border-t pt-4 space-y-3">
-              <p className="text-sm font-medium">タスクパターン追加</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  value={newPattern.name}
-                  onChange={(e) =>
-                    setNewPattern({ ...newPattern, name: e.target.value })
-                  }
-                  placeholder="タスク名"
-                />
-                <Select
-                  value={String(newPattern.stepOrder)}
-                  onValueChange={(v) =>
-                    setNewPattern({
-                      ...newPattern,
-                      stepOrder: Number(v),
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="ステップ" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {steps.map((s, i) => (
-                      <SelectItem key={i} value={String(i + 1)}>
-                        {i + 1}. {s.name || "(未入力)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={newPattern.description}
-                  onChange={(e) =>
-                    setNewPattern({
-                      ...newPattern,
-                      description: e.target.value,
-                    })
-                  }
-                  placeholder="説明"
-                />
-                <Select
-                  value={newPattern.priority}
-                  onValueChange={(v) =>
-                    setNewPattern({
-                      ...newPattern,
-                      priority: v as TaskPriority,
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">低</SelectItem>
-                    <SelectItem value="medium">中</SelectItem>
-                    <SelectItem value="high">高</SelectItem>
-                    <SelectItem value="urgent">緊急</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          {/* Add pattern form */}
+          <div className="border-t pt-4 space-y-3">
+            <p className="text-sm font-medium">
+              {editingIndex !== null ? "タスクパターン編集" : "タスクパターン追加"}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
               <Input
-                value={newPattern.defaultAssigneeRole || ""}
+                value={newPattern.name}
+                onChange={(e) =>
+                  setNewPattern({ ...newPattern, name: e.target.value })
+                }
+                placeholder="タスク名"
+              />
+              <Select
+                value={newPattern.stepId}
+                onValueChange={(v) =>
+                  setNewPattern({
+                    ...newPattern,
+                    stepId: v,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="ステップを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {steps.map((s, i) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {i + 1}. {s.name || "(未入力)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={newPattern.description}
                 onChange={(e) =>
                   setNewPattern({
                     ...newPattern,
-                    defaultAssigneeRole: e.target.value || undefined,
+                    description: e.target.value,
                   })
                 }
-                placeholder="デフォルト担当者ロール"
+                placeholder="説明"
               />
+              <Select
+                value={newPattern.priority}
+                onValueChange={(v) =>
+                  setNewPattern({
+                    ...newPattern,
+                    priority: v as TaskPriority,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">低</SelectItem>
+                  <SelectItem value="medium">中</SelectItem>
+                  <SelectItem value="high">高</SelectItem>
+                  <SelectItem value="urgent">緊急</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Input
+              value={newPattern.defaultAssigneeRole || ""}
+              onChange={(e) =>
+                setNewPattern({
+                  ...newPattern,
+                  defaultAssigneeRole: e.target.value || undefined,
+                })
+              }
+              placeholder="デフォルト担当者ロール"
+            />
+            <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={handleAddPattern}
-                disabled={!newPattern.name.trim()}
+                disabled={!newPattern.name.trim() || !newPattern.stepId}
+                className="flex-1"
               >
-                <Plus className="mr-1 h-3 w-3" />
-                追加
+                {editingIndex !== null ? (
+                  <>
+                    <Edit className="mr-1 h-3 w-3" />
+                    更新
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mr-1 h-3 w-3" />
+                    追加
+                  </>
+                )}
               </Button>
+              {editingIndex !== null && (
+                <Button variant="ghost" onClick={handleCancelEdit}>
+                  キャンセル
+                </Button>
+              )}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Actions */}
       <div className="flex gap-3">
