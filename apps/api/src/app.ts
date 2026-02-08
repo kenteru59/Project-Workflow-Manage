@@ -6,6 +6,7 @@ import { templateRoutes } from "./routes/templates.js";
 import { workflowRoutes } from "./routes/workflows.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { approvalRoutes } from "./routes/approvals.js";
+import { memberRoutes } from "./routes/members.js";
 
 const app = new Hono().basePath("/api");
 
@@ -19,6 +20,7 @@ app.route("/templates", templateRoutes);
 app.route("/workflows", workflowRoutes);
 app.route("/tasks", taskRoutes);
 app.route("/approvals", approvalRoutes);
+app.route("/members", memberRoutes);
 
 // Error handler
 app.onError((err, c) => {

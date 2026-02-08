@@ -131,3 +131,25 @@ export const approvalApi = {
       body: JSON.stringify({ comment }),
     }).then((r) => r.data),
 };
+
+// ===== Members =====
+export const memberApi = {
+  list: () =>
+    request<{ success: boolean; data: any[] }>("/members").then((r) => r.data),
+  get: (id: string) =>
+    request<{ success: boolean; data: any }>(`/members/${id}`).then((r) => r.data),
+  create: (data: any) =>
+    request<{ success: boolean; data: any }>("/members", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }).then((r) => r.data),
+  update: (id: string, data: any) =>
+    request<{ success: boolean; data: any }>(`/members/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }).then((r) => r.data),
+  delete: (id: string) =>
+    request<{ success: boolean }>(`/members/${id}`, {
+      method: "DELETE",
+    }),
+};
